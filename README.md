@@ -25,7 +25,7 @@ pip install -r requirements.txt
 
 ``` -->
 
-# 1. Documention
+# 1. How to start
 
 > You can skip this section if you are not interested in the detailed usage of the compiler.
 
@@ -81,13 +81,18 @@ Besides, you can also use `combine_e2e.sh` to directly export the end-to-end res
 
 ## 1.2 simulator usage
 
-please refer to `UniNDP/testsim.py` for the usage of the simulator.
+please refer to `UniNDP/testsim.py` and [Simulator Documentation](#2-simulator-documentation-) for the usage of the simulator.
 
 ## 1.3 Adding a new architecture
 
 - Directly modify the configuration file under `UniNDP/config` if you want to explore different architecture settings on existing computation dataflow. 
 - To explore a new dataflow, you should copy `UniNDP/backend/_template.py` to add a new backend, which requires further efforts.
 
+# 2. Simulator Documentation
+
+> The parameters are specified in [UniNDP/config](config) forder.
+
+# 3. Compiler Documentation
 
 # 2. Artifact Evaluation
 
@@ -102,7 +107,7 @@ bash ./process_workload.sh mm.csv aim 30 op # example: compile the mm on AiM arc
 
 - `{arch}`: Arch 1-5 corresponds to `upmem`, `aim`, `aim8`, `hbm-pim`, `dimmining`.
 - `{topK}`: optional, how many compilation results are selected to be simulated, default = 30.
-- [How to monitor and terminate the commands issued by the script?](#step-2-how-to-monitor-and-terminate-the-compile-commands-issued-by-the-script)
+- [How to monitor and terminate the commands issued by the script?](#step-2-how-to-monitor-and-terminate-the-compile-commands-issued-by-the-script-)
 - Output csv, result log files, and program progress will be stored in `op` folder.
 
 ### Step 2: export the results for each architecture
@@ -131,7 +136,7 @@ bash ./process_workload.sh resnet_18_224.csv aim 30 e2e # example: compile the r
 - `{workload_filename}`: The workload file you want to compile, choose from `resnet_18_224.csv`, `vgg11_224.csv`, `llama2_7B_decode_tk32.csv`, `llama2_7B_prefill.csv`, `llama2_13B_decode_tk32.csv`, `llama2_13B_prefill.csv`.
 - `{arch}`: Arch 1,2,5 corresponds to `upmem`, `aim`, `dimmining`.
 - `{topK}`: optional, how many compilation results are selected to be simulated, default = 30.
-- [How to monitor and terminate the commands issued by the script?](#step-2-how-to-monitor-and-terminate-the-compile-commands-issued-by-the-script)
+- [How to monitor and terminate the commands issued by the script?](#step-2-how-to-monitor-and-terminate-the-compile-commands-issued-by-the-script-)
 - Output csv and log files will be stored in `e2e` folder.
 
 ### Step 2: export the end-to-end results (Fig.7)
