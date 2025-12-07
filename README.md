@@ -90,13 +90,95 @@ please refer to `UniNDP/testsim.py` and [Simulator Documentation](#2-simulator-d
 
 # 2. Simulator Documentation
 
-> The parameters are specified in [UniNDP/config](config) forder.
+## 2.1 Hardware Description
+
+Parameters for the simulator are specified in [UniNDP/config](config) forder, and will be marked as `parameter` in the documentation.
+
+### 2.1.1 Memory Hierarchy
+
+![Memory Hierarchy Diagram](doc/sim/memory-hierarchy.png)
+
+To specify the memory hierarchy, the parameters includes:
+
+- `ch`: number of DRAM channels
+- `ra`: number of DRAM ranks per channel
+- `de`: number of DRAM devices per rank
+- `bg`: number of DRAM bank groups per device
+- `ba`: number of DRAM banks per bank group
+
+For the DRAM bank, the parameters includes:
+
+- `ro`: number of DRAM rows
+- `co`: number of DRAM column (also considering burst length) in a row
+- `co_w`: size a DRAM burst access (bits)
+
+Timing parameters such as `tCCDL` are also specified at the end of the config file.
+
+### 2.1.2 NDP Components
+
+#### Processing Units (PU) & Local Buffer (LB)
+
+Take bank-level NDP as an example, the key parameter to add PU and LB is:
+
+- `de_pu`: number of PUs per DRAM device, should be a divisor of `bk`
+
+LBs are attached to each PU, and can not be accessed by other PUs. Also, DRAM banks are directly connected to its nearest PU, and can not be directly accessed by other PUs.
+
+Here are two examples when `bk=16`, and `de_pu=8/16`:
+
+![PU & LB Diagram](doc/sim/aim16.png)
+
+![PU & LB Diagram](doc/sim/aim8.png)
+
+As shown in the diagrams, the zoom out part forms a "Locality group", where direct data exchange (independent of data bus / host) can happen here.
+
+- PU can directly access data from DRAM bank / local buffer, please refer to [MAC INST]() for detailed ISA.
+- Data can be directly moved between Local Buffer and DRAM Bank, please refer to [Memory Movement INST]() for detailed ISA.
+
+To specify details of PUs, the parameters includes:
+
+- `data_pr`: data precision of PU computation
+- `de_pu_w`: (m,n,k), which means a PU can compute MM of A(m,k) * B(k,n) within a DRAM access interval (`tCCDL`). Currently the we only support (m,n)=(1,1), which is a vector mutiplication.
+
+To specify details of LBs, the parameters includes:
+
+- `de_pu_bf`: size of the LB for input (bits)
+- `de_pu_inbuf`: size of the LB for output (bits)
+- `de_pu_bf_rl`: read latency of LB
+- `de_pu_bf_wl`: write latency of LB
+
+#### Global Buffer (GB)
+
+In each device, we also allows the user to add a global SRAM buffer, which can be accessed by all PUs in the device through memory bus. 
+To specify the global buffer, the parameters includes:
+
+- `de_gb`: size of global buffer per device
+- `de_gb_rl`: number of DRAM banks per PU
+- `de_gb_wl`: number of DRAM banks per PU
+
+During computation, input can also be broadcasted to all PUs from global buffer, please refer to [MAC INST]() for detailed ISA.
+Also, data movement can happen between global buffer and DRAM bank in the same device, please refer to [Memory Movement INST]() for detailed ISA.
+
+![Global Buffer Diagram](doc/sim/global-buffer.png)
+
+### 2.1.3 NDP at Different Hireachy
+
+Similar to the configuration of PU / LB / GB in each device, same components can be added to rank level using:
+- `ra_pu`: number of PUs per rank
+- `ra_pu_bf`: size of the LB (bits)
+- `ra_pu_bf_rl`: read latency of LB
+- `ra_pu_bf_wl`: write latency of LB
+- `ra_gb`: size of global buffer per rank
+- `ra_gb_rl`: read latency of global buffer
+- `ra_gb_wl`: write latency of global buffer
+
+You can refer to the configuartion file and backend kernel of `dimmining` architecture for example usage.
 
 # 3. Compiler Documentation
 
-# 2. Artifact Evaluation
+# 4. Artifact Evaluation
 
-## 2.1 MM & MVM Experiment (Sec.VII-B, Table V & VI)
+## 4.1 MM & MVM Experiment (Sec.VII-B, Table V & VI)
 
 ### Step 1: run the bash script (~ 2.5 hours)
 ```bash
@@ -123,7 +205,7 @@ bash combine_op.sh
 
 For each architecture `{arch}`, the results will be stored in `./op/mm_{arch}.csv`.
 
-## 2.2 End-to-End Experiment (Sec.VII-B, Fig. 7 & 8)
+## 4.2 End-to-End Experiment (Sec.VII-B, Fig. 7 & 8)
 
 
 ### Step 1: run the bash script
@@ -159,7 +241,7 @@ The key metrics of the compilation results can also be found in the CSV files. H
 - #DRAM-Access-cmd: `pu_dram_access` + `host_dram_access`
 - #DRAM-Row-change: `row_change`
 
-## 2.3 Simulator Verification (Sec.VII-C)
+## 4.3 Simulator Verification (Sec.VII-C)
 
 In this section, we use MVM operator of {input_size} and {output_size} as example.
 
@@ -202,7 +284,7 @@ scons
 
 Results and the latency of simulation will be reported in the `log.txt` file.
 
-## 2.4 Predictor Verification
+## 4.4 Predictor Verification
 
 ### Accuracy Verification (Fig.10)
 
@@ -240,7 +322,7 @@ python -OO compile_predictor.py -A aim -S 4096 4096 4096 1 -O with_sim -Q -K 30
 python -OO compile_predictor.py -A aim -S 4096 4096 4096 1 -O no_sim -Q -K 30 -NS 
 ```
 
-## 2.5 Pruning Verification
+## 4.5 Pruning Verification
 
 ### Pruning Ablation (Fig.9)
 
@@ -262,7 +344,7 @@ python -OO compile_detail.py -A aim -S 4096 4096 4096 1 -O with_prune -Q -K 30
 python -OO compile_detail.py -A aim -S 4096 4096 4096 1 -O no_prune -Q -K 30 -UU
 ```
 
-## 2.6 Breakdown Experiment (Fig.11)
+## 4.6 Breakdown Experiment (Fig.11)
 
 The breakdown figure is draw from the command numbers in the result csv file (as well as the timing parameters in the config file). The processed excel file for this picture is provided [here](https://drive.google.com/uc?export=download&id=1IezYKfBg_NsMSuXNHiFvOuKYDHUvhCti).
 
@@ -273,7 +355,7 @@ python -OO compile_detail.py -A aim -S 4096 6656 832 1 -O aim_breakdown -Q -K 50
 python -OO compile_detail.py -A aim8 -S 4096 6656 832 1 -O aim8_breakdown -Q -K 50 # Arch 3
 ```
 
-## 2.7 Insight 2 (Sec.VII-G-2)
+## 4.7 Insight 2 (Sec.VII-G-2)
 
 The result in **insight 2** is evaluated by comparing the `best result` (**!!! not the speedup**) of these two input buffer settings on HBM-PIM architecture.
 ```bash
