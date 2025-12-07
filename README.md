@@ -81,7 +81,7 @@ Besides, you can also use `combine_e2e.sh` to directly export the end-to-end res
 
 ## 1.2 simulator usage
 
-please refer to `UniNDP/testsim.py` and [Simulator Documentation](#2-simulator-documentation-) for the usage of the simulator.
+please refer to `UniNDP/testsim.py` and [Simulator Documentation](#2-simulator-documentation) for the usage of the simulator.
 
 ## 1.3 Adding a new architecture
 
@@ -92,7 +92,7 @@ please refer to `UniNDP/testsim.py` and [Simulator Documentation](#2-simulator-d
 
 ## 2.1 Hardware Description
 
-Parameters for the simulator are specified in [UniNDP/config](config) forder, and will be marked as `parameter` in the documentation.
+Parameters for the simulator are specified in [config](config) forder, and will be marked as `parameter` in the documentation.
 
 ### 2.1.1 Memory Hierarchy
 
@@ -173,6 +173,12 @@ Similar to the configuration of PU / LB / GB in each device, same components can
 - `ra_gb_wl`: write latency of global buffer
 
 You can refer to the configuartion file and backend kernel of `dimmining` architecture for example usage.
+
+## 2.2 INST Definition
+
+## 2.3 Multi-Thread Execution of INSTs
+
+## 2.4 Usage Example
 
 # 3. Compiler Documentation
 
