@@ -211,7 +211,10 @@ Here're some examples of the computation procedure in a device (`LEVEL.DE`) when
 
 ![bk-bk-connection](doc/sim/bk-bk.png)
 
-As shown in the diagram, when `op1.bank != op2.bank`, OP1/2 are fetched from different DRAM banks, and multiplied by the PU. This procedure will happen in all the activated PUs in the device.
+As shown in the diagram, when `op1.bank != op2.bank`, OP1/2 are fetched from different DRAM banks, and multiplied by the PU. 
+`Row_id` and `col_offset` indicates the address of where to read data in DRAM.
+`col_num` indicates the number of continous DRAM columns in the same row to be read.
+This procedure will happen in all the activated PUs in the device. 
 
 #### Case 2: Computing using DRAM bank and local buffer
 
@@ -239,16 +242,116 @@ It should be noticed that, all the activated PU will share OP2 (often input data
 | `ra_id`      | Rank ID (e.g., 0)|
 | `de_id`      | Device ID (e.g., 0)|
 | `pu` | `(num, mask)`: number of PUs activated, and a mask for detailing which PUs are actually used|
-| `op1` | `(bank, row_id, col_offset)`, specify the address of operand 1,explain later|
-| `op2` | `(bank, row_id, col_offset)`, specify the address of operand 2,explain later|
-| `col_num` | computing data from `col_num` continous DRAM columns in the same row |
+| `op1` | `(bank, row_id, col_offset)`, specify the address of where to read / write data in DRAM|
+| `lb` | `(is_input, buf_addr, col_len)`, specify the address of operand 2,explain later|
 | `auto_precharge` | Whether to automatically precharge the bank after the instruction is executed|
+
+`buf2bk` means write data to DRAM bank from local buffer. `bk2buf` means read data from DRAM bank to local buffer.
+
+The `pu` parameter is considered here to enable parallel movement of data between DRAM banks and the local buffer of PUs that connected to it.
+
+`op1.bank` indicates which bank does the pu write / read data to / from, as each PU maybe directly connected to more than one bank. But it should be noticed that `0 <= op1.bank < bk//pu.num`. `Row_id` and `col_offset` indicates the address of where to read / write data in DRAM.
+
+`lb.is_input` indicates whether data are moved to/from input part or output part of the local buffer. If this is set to false, only `buf2bk` is implemented, and the data movement will replace the whole buffer (as we are writing back output to DRAM). Otherwise, it will only move `lb.col_len` columns (considered burst length) of data from/to DRAM bank.
+
+#### DRAM Bank <-> Global Buffer
+
+| Field        | Description                                                                      |
+|--------------|----------------------------------------------------------------------------------|
+|  `LEVEL`| = `LEVEL.DE`|
+| `OPTYPE`| = `OPTYPE.bk2gb` or `OPTYPE.gb2bk`|
+| `ch_id`      | Channel ID (e.g., 0)|
+| `ra_id`      | Rank ID (e.g., 0)|
+| `de_id`      | Device ID (e.g., 0)|
+| `bank_id/bank_mask` | `id` if `bk2gb`, `mask` if `gb2bk`|
+| `op` | `(row_id, col_offset)`, specify the address of where to read / write data in DRAM bank|
+| `gb_col_offset` | specify the address of where to read / write data in global buffer|
+| `col_num` | specify the number of continous DRAM columns in the same row to be read / written|
+| `auto_precharge` | Whether to automatically precharge the bank after the instruction is executed|
+
+This instruction is used to move data between DRAM bank and global buffer. `OPTYPE.bk2gb` will write data to global buffer. As different banks are connected to global buffer through a share memory bus, only 1 bank can write to global buffer at a time, so we use `bank_id` to specify the bank to write to global buffer.
+
+`OPTYPE.gb2bk` will read data from global buffer to DRAM bank, as data can be broadcasted to all PUs from global buffer, we use `bank_mask` to specify the banks to save the data to.
+
+#### Output Reg <-> Local Buffer
+
+Move data between output register and local buffer.
+
+```Python
+#   1. PU reg <-> local buffer
+#    op-level   op-type         ch_id,  ra_id,  de_id,  pu:(num, mask),                 buffer_addr
+    (LEVEL.DE,  OPTYPE.reg2buf, 0,      0,      0,     (16, [True for _ in range(16)]), 0),
+    (LEVEL.DE,  OPTYPE.buf2reg, 0,      0,      0,     (16, [True for _ in range(16)]), 1),
+```
+
+These two instruction move the partial result in PU to address 0 in local buffer, and read the partial result from address 1 to the output reg for further accumulation.
+
+### 2.2.3 Host Read/Write Instruction
+
+Host access instruction is used when host processor read / write DRAM through memory bus.
+
+```Python
+
+#   1. Host read bank
+#   op-level    op-type                 ch_id,      ra_id,      device_mask
+    (LEVEL.SYS, OPTYPE.host_read,       0,          0,          [True for _ in range(8)],
+#   bank_id,                            row_id,     col_offset, col_num,    auto_precharge
+    1,                                  0,          0,          64,         False),
+
+#   2. Host write bank
+#   op-level    op-type                 ch_id,      ra_id,      device_mask
+    (LEVEL.SYS, OPTYPE.host_write,      0,          0,          [True for _ in range(8)],
+#   bank_mask,                          row_id,     col_offset, col_num,    auto_precharge
+    [True for _ in range(16)],          0,          0,          64,         True),
+
+#   3. host write device buffer
+#   op-level    op-type                 ch_id,      ra_id,      device_mask
+    (LEVEL.SYS, OPTYPE.host_write_device_buffer, 0, 0,          [True for _ in range(8)],
+#   buffer_addr,col_num
+    0,          64    ),
+
+# #   4. host read device buffer
+# #   op-level   op-type                 ch_id,      ra_id,      device_mask
+#     (LEVEL.SYS, OPTYPE.host_read_device_buffer, 0, 0,          [True for _ in range(8)],
+# #   buffer_addr,col_num
+#     0,          64    ),
+
+#  5. host write pu in buffer, allow broadcast
+#   op-level   op-type                 ch_id,      ra_id,      device_mask
+    (LEVEL.SYS, OPTYPE.host_write_pu_inbuf, 0, 0,          [True for _ in range(8)],
+#   pu_mask,                     col_offset, col_num
+    [True for _ in range(16)],   0,          64),
+
+#  6. host read pu reg
+#   op-level   op-type                 ch_id,      ra_id,      device_mask
+    (LEVEL.SYS, OPTYPE.host_read_mac_reg,   0,     0,          [True for _ in range(8)],
+#   pu_mask,                      
+    [True for _ in range(16)]),
+
+#  7. host write pu reg
+#   op-level   op-type                 ch_id,      ra_id,      device_mask
+    (LEVEL.SYS, OPTYPE.host_write_mac_reg, 0,      0,          [True for _ in range(8)],
+#   (pu_num, pu_mask)
+    [True for _ in range(16)]),
+
+# Rank-level NDP
+#8. op-level   op-type          ch_id,  ra_id,  rank_pu_mask,                
+    (LEVEL.SYS, OPTYPE.host_read_rank_pu_reg, 0, 0, [True for _ in range(4)]),
+#9. op-level   op-type          ch_id,  ra_id,  rank_pu_mask,
+    (LEVEL.SYS, OPTYPE.host_write_rank_pu_reg, 0, 0, [True for _ in range(4)]),
+```
 
 
 
 ## 2.3 Multi-Thread Execution of INSTs
 
 ## 2.4 Usage Example
+
+### 2.4.1 Directly add instruction
+
+### 2.4.2 Add instruction using generator
+
+### 2.4.3 Using compiler to generate instructions from a MM operator
 
 # 3. Compiler Documentation
 
