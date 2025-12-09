@@ -81,7 +81,7 @@ Besides, you can also use `combine_e2e.sh` to directly export the end-to-end res
 
 ## 1.2 simulator usage
 
-please refer to `UniNDP/testsim.py` and [Simulator Documentation](#2-simulator-documentation) for the usage of the simulator.
+please refer to [`testsim.py`](testsim.py) and [simulator documentation](#2-simulator-documentation) for the usage of the simulator.
 
 ## 1.3 Adding a new architecture
 
@@ -120,20 +120,20 @@ Timing parameters such as `tCCDL` are also specified at the end of the config fi
 
 Take bank-level NDP as an example, the key parameter to add PU and LB is:
 
-- `de_pu`: number of PUs per DRAM device, should be a divisor of `bk`
+- `de_pu`: a list. Each element in the list stands for a possible number of activated PUs per DRAM device, and should be a divisor of `bk`.
 
-LBs are attached to each PU, and can not be accessed by other PUs. Also, DRAM banks are directly connected to its nearest PU, and can not be directly accessed by other PUs.
-
-Here are two examples when `bk=16`, and `de_pu=8/16`:
+Different activated PU numbers correspond to different connection modes of PUs and DRAM banks. Here are two possible computation mode for `de_pu=[8,16]` when `bk=16`.
 
 ![PU & LB Diagram](doc/sim/aim16.png)
 
 ![PU & LB Diagram](doc/sim/aim8.png)
 
-As shown in the diagrams, the zoom out part forms a "Locality group", where direct data exchange (independent of data bus / host) can happen here.
+In both mode, LBs are directly connected to each PU. When 16 PUs are activated, each PU are directly connected to its nearest DRAM bank, and when 8 PUs are activated, each PU are connected to 2 nearest DRAM banks. Selection between different modes are specified in the `pu` field of [computation instructions](#221-computation-instruction).
 
-- PU can directly access data from DRAM bank / local buffer, please refer to [MAC INST]() for detailed ISA.
-- Data can be directly moved between Local Buffer and DRAM Bank, please refer to [Memory Movement INST]() for detailed ISA.
+As shown in the diagrams, the zoom out part forms a "directly connected area", where direct data exchange (independent of data bus / host) can happen here.
+
+- PU can directly access data from DRAM bank / local buffer, please refer to [computation instructions](#221-computation-instruction) for detailed ISA.
+- Data can be directly moved between Local Buffer and DRAM Bank, please refer to [memory movement instructions]() for detailed ISA.
 
 To specify details of PUs, the parameters includes:
 
@@ -156,7 +156,7 @@ To specify the global buffer, the parameters includes:
 - `de_gb_rl`: number of DRAM banks per PU
 - `de_gb_wl`: number of DRAM banks per PU
 
-During computation, input can also be broadcasted to all PUs from global buffer, please refer to [MAC INST]() for detailed ISA.
+During computation, input can also be broadcasted to all PUs from global buffer, please refer to [computation instructions](#221-computation-instruction) for detailed ISA.
 Also, data movement can happen between global buffer and DRAM bank in the same device, please refer to [Memory Movement INST]() for detailed ISA.
 
 ![Global Buffer Diagram](doc/sim/global-buffer.png)
@@ -175,6 +175,76 @@ Similar to the configuration of PU / LB / GB in each device, same components can
 You can refer to the configuartion file and backend kernel of `dimmining` architecture for example usage.
 
 ## 2.2 INST Definition
+
+INST format are as follows, all fields are listed in a tuple, examples can be found in [`testsim.py`](testsim.py):
+
+| Field        | Description                                                                      |
+|--------------|----------------------------------------------------------------------------------|
+| `LEVEL`      | Instruction hierarchy: SYS, CH, RA, DE, PU                                       |
+| `OPTYPE`     | Operation type: host_read, pu, reg2buf, buf2reg, buf2bk, bk2buf, bk2gb, gb2bk    |
+| Others...    | Each instruction level/type has their own fields|
+
+### 2.2.1 Computation Instruction
+
+Currently, we only consider the Mutiply-and-Accumulate (MAC) computation of two operands (OP1/2). The computation instruction format is as follows:
+
+| Field        | Description                                                                      |
+|--------------|----------------------------------------------------------------------------------|
+|  `LEVEL`| = `LEVEL.DE` or `LEVEL.RA`|
+| `OPTYPE`| = `OPTYPE.pu`|
+| `ch_id`      | Channel ID (e.g., 0)|
+| `ra_id`      | Rank ID (e.g., 0)|
+| `de_id`      | Device ID (e.g., 0)|
+| `pu` | `(num, mask)`: number of PUs activated, and a mask for detailing which PUs are actually used|
+| `op1` | `(bank, row_id, col_offset)`, specify the address of operand 1,explain later|
+| `op2` | `(bank, row_id, col_offset)`, specify the address of operand 2,explain later|
+| `col_num` | computing data from `col_num` continous DRAM columns in the same row |
+| `auto_precharge` | Whether to automatically precharge the bank after the instruction is executed|
+
+`pu.num` should be one of the values in `de_pu`, which correspond to a certain connection mode.
+
+For `bank` in op1 and op2, it indicates which bank does the pu fetch data from, as each PU maybe directly connected to more than one bank. But it should be noticed that `0 <= op1/2.bank < bk//pu.num`. 
+
+Here're some examples of the computation procedure in a device (`LEVEL.DE`) when `bk=16, pu.num=8`.
+
+#### Case 1: Computing using DRAM banks
+
+![bk-bk-connection](doc/sim/bk-bk.png)
+
+As shown in the diagram, when `op1.bank != op2.bank`, OP1/2 are fetched from different DRAM banks, and multiplied by the PU. This procedure will happen in all the activated PUs in the device.
+
+#### Case 2: Computing using DRAM bank and local buffer
+
+![bk-lb-connection](doc/sim/bk-lb.png)
+
+As shown in the diagram, when `op1.bank == op2.bank` and `op2.row_id == 0`, OP2 is fetched from local buffer, and `op2.col_offset` is the offset of the data in the local buffer.
+
+#### Case 3: Computing using DRAM bank and global buffer
+
+![bk-gb-connection](doc/sim/bk-gb.png)
+
+As shown in the diagram, when `op1.bank == op2.bank` and `op2.row_id > 0`, OP2 is broadcasted from global buffer through the memory bus in device, and op2.col_offset is the offset of the data in the global buffer.
+
+It should be noticed that, all the activated PU will share OP2 (often input data) from global buffer. Which are not suitable if PUs in a device need to process different inputs.
+
+### 2.2.2 Memory Movement Instruction
+
+#### DRAM Bank <-> Local Buffer
+
+| Field        | Description                                                                      |
+|--------------|----------------------------------------------------------------------------------|
+|  `LEVEL`| = `LEVEL.DE`|
+| `OPTYPE`| = `OPTYPE.buf2bk` or `OPTYPE.bk2buf`|
+| `ch_id`      | Channel ID (e.g., 0)|
+| `ra_id`      | Rank ID (e.g., 0)|
+| `de_id`      | Device ID (e.g., 0)|
+| `pu` | `(num, mask)`: number of PUs activated, and a mask for detailing which PUs are actually used|
+| `op1` | `(bank, row_id, col_offset)`, specify the address of operand 1,explain later|
+| `op2` | `(bank, row_id, col_offset)`, specify the address of operand 2,explain later|
+| `col_num` | computing data from `col_num` continous DRAM columns in the same row |
+| `auto_precharge` | Whether to automatically precharge the bank after the instruction is executed|
+
+
 
 ## 2.3 Multi-Thread Execution of INSTs
 
