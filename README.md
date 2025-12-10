@@ -429,7 +429,7 @@ print(f"latency: {lat}")
 
 ### 2.4.3 Using compiler to generate instructions from a MM operator
 
-A simple implementation of MM operator on Samsung HBM-PIM is provided in [sim_verify.py](sim_verify.py). And actual process of using instructions to represent the computing process is shown in [backend/hbm_pim_verify](sim_verify.py#L115-L120).
+A simple implementation of MM operator on Samsung HBM-PIM is provided in [sim_verify.py](sim_verify.py). And actual process of using instructions to represent the computing process is shown in [backend/hbm_pim_verify](backend/hbm_pim_verify.py).
 
 For more detailed usage of compiler, please read the following parts.
 
