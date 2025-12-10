@@ -94,8 +94,8 @@ SimConfig.read_from_yaml('./config/testsim.yaml')
 
 lat = sim([ # dependency: 0 <- 1 <- 2
     (0, [], test_command_2),
-    (1, [0], test_command_3),
-    (2, [1], test_command_0),
+    (1, [], test_command_3),
+    (2, [], test_command_0),
 ], silent=False)
 
 print(f"latency: {lat}")

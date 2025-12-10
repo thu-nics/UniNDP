@@ -341,17 +341,97 @@ Host access instruction is used when host processor read / write DRAM through me
     (LEVEL.SYS, OPTYPE.host_write_rank_pu_reg, 0, 0, [True for _ in range(4)]),
 ```
 
+## 2.3 Multi-Thread Execution of Instructions
 
+We allow the user to execute instructions in multi-thread mode, as shown in [line 95 of testsim.py](testsim.py#L95).
 
-## 2.3 Multi-Thread Execution of INSTs
+```Python
+lat = sim([ # dependency: 0 <- 1 <- 2
+    (0, [], test_command_2),
+    (1, [], test_command_3),
+    (2, [], test_command_0),
+], silent=False)
+```
+
+Instructions are arranged into three groups: `test_command_0`, `test_command_2`, `test_command_3`.
+Inside each group, instructions are issued in-order. Between groups, instructions can be issued out-of-order, which is similar to multi-threading.
+All the issuable instructions are issued ASAP.
+
+Dependency between groups can also be configured as follows:
+
+```Python
+lat = sim([ # dependency: group 0,1 -> 2 -> 3,4
+    (0, [], test_command_2),
+    (1, [], test_command_3),
+    (2, [0,1], test_command_0),
+    (3, [2], test_command_xx),
+    (4, [2], test_command_xx),
+], silent=False)
+```
+
+In this example, group 2 can be used as a synchronization point.
 
 ## 2.4 Usage Example
 
 ### 2.4.1 Directly add instruction
 
-### 2.4.2 Add instruction using generator
+Refer to [testsim.py](testsim.py) for an details.
+
+```Python
+from sim import sim
+from tools import *
+
+# test commands
+test_command_0 = [
+    instruction_1,
+    instruction_2,
+    ...
+]
+
+test_command_1 = [
+    instruction_3,
+    instruction_4,
+    ...
+]
+
+lat = sim([
+    (0, [], test_command_0),
+    (1, [], test_command_1),
+], silent=False)
+
+print(f"latency: {lat}")
+```
+
+### 2.4.2 Add instruction using command generator
+
+This is a convenient way to add instructions instead of manually writing the tuple following the instruction format. Please refer to [BaseCodegen.create_xxx()](backend/base.py#L38) for the detailed usage.
+
+```Python
+commands = []
+codegen_tool = BaseCodegen()
+
+commands.append(codegen_tool.create_device_pu(
+    self.create_device_pu(
+        channel_id, rank_id, device_id, pu_num, pu_mask, 
+        op1, 
+        op2,
+        col_len, 
+        auto_precharge
+    )
+))
+
+lat = sim([
+    (0, [], commands),
+], silent=False)
+
+print(f"latency: {lat}")
+```
 
 ### 2.4.3 Using compiler to generate instructions from a MM operator
+
+A simple implementation of MM operator on Samsung HBM-PIM is provided in [sim_verify.py](sim_verify.py). And actual process of using instructions to represent the computing process is shown in [backend/hbm_pim_verify](sim_verify.py#L115-L120).
+
+For more detailed usage of compiler, please read the following parts.
 
 # 3. Compiler Documentation
 

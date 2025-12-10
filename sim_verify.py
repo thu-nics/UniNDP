@@ -109,7 +109,6 @@ def main():
     # D. Codegen
     codegen_tool = Codegen(require_power_of_2 = args.po2)
     codegen_tool.set_gen()
-
     start_time = time.time()
     gen_code, inst_count, predict_result = \
     codegen_tool.codegen('mm', compute_level, pu_num, partition,
@@ -119,7 +118,6 @@ def main():
                             output_bank, output_row_offset),
                             cmd_threshold=0)
     # E. simulation
-
     baseline_sim_result = sim(gen_code, silent=True, sim_verify=1)
     baseline_sim_result = tCK * baseline_sim_result * (tRFC + tREFI) / tREFI
 
