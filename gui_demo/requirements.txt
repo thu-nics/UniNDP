@@ -1,0 +1,4 @@
+# UniNDP GUI Demo Requirements
+# Install with: pip install -r requirements.txt
+
+gradio>=4.0.0
