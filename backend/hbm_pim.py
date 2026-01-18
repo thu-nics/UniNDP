@@ -1,4 +1,5 @@
 from math import ceil
+import profile
 from tools import *
 from backend.base import BaseCodegen
 import numpy as np
@@ -44,7 +45,7 @@ class hbmpim(BaseCodegen):
                     om_row, ol_row, ob_row,
                     om_block_corner, ol_block_corner, ob_block_corner,
                     pu_m, pu_k, pu_l, pu_b,
-                    pu_list, performance_threshold):
+                    pu_list, performance_threshold, profile_level=0):
         # print('ABC', input_bank, weight_bank, output_bank)
         # hbm-pim有一些输入buffer和一些输出buffer
         input_cols_hold_in_buf = SimConfig.de_pu_inbuf // SimConfig.co_w
@@ -91,12 +92,13 @@ class hbmpim(BaseCodegen):
                                             limited_pu_list = pu_list[input_group*pu_l:(input_group+1)*pu_l]
                                             limited_pu_mask = [(i in limited_pu_list) for i in range(pu_num)]
                                             # device并行的写入pu的输入buffer
-                                            tmp_inst_list.append(
-                                                self.create_host_write_pu_inbuf(
-                                                    channel_id, rank_id, device_mask, limited_pu_mask,
-                                                    0, k_reload_len
+                                            if profile_level == 0:
+                                                tmp_inst_list.append(
+                                                    self.create_host_write_pu_inbuf(
+                                                        channel_id, rank_id, device_mask, limited_pu_mask,
+                                                        0, k_reload_len
+                                                    )
                                                 )
-                                            )
 
                                         for l_row_id in range(l_row):
                                             l_block_real = l_block if l_row_id < l_row - 1 else l_block_corner
@@ -132,45 +134,57 @@ class hbmpim(BaseCodegen):
                                                 if need_change:
                                                     for device_id in device_list:
                                                         # move the buffer to bank
-                                                        tmp_inst_list.append(self.create_device_buf2bk(
-                                                            channel_id, rank_id, device_id, pu_num, pu_mask, 
-                                                            (input_bank, output_row_offset + last_row, 0 # col_offset不重要
-                                                                ), (False, 0, 0), (last_row != o_row_id) or not outpoint_log[om_id, ol_id]
-                                                        ))
+                                                        if profile_level == 0:
+                                                            tmp_inst_list.append(self.create_device_buf2bk(
+                                                                channel_id, rank_id, device_id, pu_num, pu_mask, 
+                                                                (input_bank, output_row_offset + last_row, 0 # col_offset不重要
+                                                                    ), (False, 0, 0), (last_row != o_row_id) or not outpoint_log[om_id, ol_id]
+                                                            ))
 
                                                     assert om_id < om_block * om_row + om_block_corner - om_block, f"om_id={om_id}, om_block={om_block}, om_row={om_row}, om_block_corner={om_block_corner}"
                                                     assert ol_id < self.simd * (ol_block * ol_row + ol_block_corner - ol_block), f"ol_id={ol_id}, ol_block={ol_block}, ol_row={ol_row}, ol_block_corner={ol_block_corner}"
                                                     
                                                     if outpoint_log[om_id, ol_id]:
                                                         for device_id in device_list:
-                                                            # move the new bank area back to buffer
-                                                            tmp_inst_list.append(self.create_device_bk2buf(
-                                                                channel_id, rank_id, device_id, pu_num, pu_mask, 
-                                                                (input_bank, output_row_offset + o_row_id, 0 # col_offset不重要
-                                                                ), (False, 0, 0), True
-                                                            ))
+                                                            if profile_level == 0:
+                                                                # move the new bank area back to buffer
+                                                                tmp_inst_list.append(self.create_device_bk2buf(
+                                                                    channel_id, rank_id, device_id, pu_num, pu_mask, 
+                                                                    (input_bank, output_row_offset + o_row_id, 0 # col_offset不重要
+                                                                    ), (False, 0, 0), True
+                                                                ))
                                                     outpoint_log[om_id, ol_id] = True
                                             
                                                 for device_id in device_list:
                                                     # load in result from buffer
-                                                    tmp_inst_list.append(self.create_device_buf2reg(
-                                                        channel_id, rank_id, device_id, pu_num, pu_mask, 0
-                                                    ))
+                                                    if profile_level == 0:
+                                                        tmp_inst_list.append(self.create_device_buf2reg(
+                                                            channel_id, rank_id, device_id, pu_num, pu_mask, 0
+                                                        ))
 
                                                 for device_id in device_list:
                                                     # compute 
-                                                    tmp_inst_list.append(self.create_device_pu(
-                                                        channel_id, rank_id, device_id, pu_num, pu_mask, 
-                                                        (weight_bank, weight_row_offset + weight_row_id, weight_col_offset), 
-                                                        (weight_bank, 0, input_col_offset), 
-                                                        col_len, weight_rowchange
-                                                    ))
+                                                    if profile_level <= 1:
+                                                        tmp_inst_list.append(self.create_device_pu(
+                                                            channel_id, rank_id, device_id, pu_num, pu_mask, 
+                                                            (weight_bank, weight_row_offset + weight_row_id, weight_col_offset), 
+                                                            (weight_bank, 0, input_col_offset), 
+                                                            col_len, weight_rowchange
+                                                        ))
+                                                    else:
+                                                        tmp_inst_list.append(self.create_device_pu(
+                                                            channel_id, rank_id, device_id, pu_num, pu_mask, 
+                                                            (weight_bank, 0, weight_col_offset), 
+                                                            (weight_bank, 0, input_col_offset), 
+                                                            col_len, False
+                                                        ))
 
                                                 # 更换回buffer对应位置
                                                 for device_id in device_list:
-                                                    tmp_inst_list.append(self.create_device_reg2buf(
-                                                        channel_id, rank_id, device_id, pu_num, pu_mask, 0
-                                                    ))
+                                                    if profile_level == 0:
+                                                        tmp_inst_list.append(self.create_device_reg2buf(
+                                                            channel_id, rank_id, device_id, pu_num, pu_mask, 0
+                                                        ))
 
                                                 # check the command threshold
                                                 # check the command threshold
@@ -199,12 +213,13 @@ class hbmpim(BaseCodegen):
                                             # bank_mask = [( i in bank_list ) for i in range(self.bank_num)]
                                             limited_pu_mask = [(i in limited_pu_list) for i in range(pu_num)]
                                             # device并行的写入pu的输入buffer
-                                            tmp_inst_list.append(
-                                                self.create_host_write_pu_inbuf(
-                                                    channel_id, rank_id, device_mask, limited_pu_mask,
-                                                    0, reload_col_len
+                                            if profile_level == 0:
+                                                tmp_inst_list.append(
+                                                    self.create_host_write_pu_inbuf(
+                                                        channel_id, rank_id, device_mask, limited_pu_mask,
+                                                        0, reload_col_len
+                                                    )
                                                 )
-                                            )
                                     for l_row_id in range(l_row):
                                         l_block_real = l_block if l_row_id < l_row - 1 else l_block_corner
                                         weight_row_id = l_row_id + k_row_id * l_row
@@ -233,39 +248,51 @@ class hbmpim(BaseCodegen):
                                             if need_change:
                                                 # move the buffer to bank
                                                 for device_id in device_list:
-                                                    tmp_inst_list.append(self.create_device_buf2bk(
-                                                        channel_id, rank_id, device_id, pu_num, pu_mask, 
-                                                        (input_bank, output_row_offset + last_row, 0 # col_offset不重要
-                                                            ), (False, 0, 0), (last_row != o_row_id) or not outpoint_log[om_id, ol_id]
-                                                    ))
+                                                    if profile_level == 0:
+                                                        tmp_inst_list.append(self.create_device_buf2bk(
+                                                            channel_id, rank_id, device_id, pu_num, pu_mask, 
+                                                            (input_bank, output_row_offset + last_row, 0 # col_offset不重要
+                                                                ), (False, 0, 0), (last_row != o_row_id) or not outpoint_log[om_id, ol_id]
+                                                        ))
                                                 #assert om_id < om_block * om_row + om_block_corner - om_block, f"om_id={om_id}, om_block={om_block}, om_row={om_row}, om_block_corner={om_block_corner}"
                                                 #assert ol_id < ol_block * ol_row + ol_block_corner - ol_block, f"ol_id={ol_id}, ol_block={ol_block}, ol_row={ol_row}, ol_block_corner={ol_block_corner}"
                                                 if outpoint_log[om_id, ol_id]:
                                                     # move the new bank area back to buffer
                                                     for device_id in device_list:
-                                                        tmp_inst_list.append(self.create_device_bk2buf(
-                                                            channel_id, rank_id, device_id, pu_num, pu_mask, 
-                                                            (input_bank, output_row_offset + o_row_id, 0 # col_offset不重要
-                                                            ), (False, 0, 0), True
-                                                        ))
+                                                        if profile_level == 0:
+                                                            tmp_inst_list.append(self.create_device_bk2buf(
+                                                                channel_id, rank_id, device_id, pu_num, pu_mask, 
+                                                                (input_bank, output_row_offset + o_row_id, 0 # col_offset不重要
+                                                                ), (False, 0, 0), True
+                                                            ))
                                                 outpoint_log[om_id, ol_id] = True
                                             # load in result from buffer
                                             for device_id in device_list:
-                                                tmp_inst_list.append(self.create_device_buf2reg(
-                                                    channel_id, rank_id, device_id, pu_num, pu_mask, 0
-                                                ))
+                                                if profile_level == 0:
+                                                    tmp_inst_list.append(self.create_device_buf2reg(
+                                                        channel_id, rank_id, device_id, pu_num, pu_mask, 0
+                                                    ))
                                             # compute 
                                             for device_id in device_list:
-                                                tmp_inst_list.append(self.create_device_pu(
-                                                    channel_id, rank_id, device_id, pu_num, pu_mask, 
-                                                    (weight_bank, weight_row_offset + weight_row_id, weight_col_offset), 
-                                                    (weight_bank, 0, input_col_offset), 
-                                                    col_len, weight_rowchange
-                                                ))
+                                                if profile_level <= 1:
+                                                    tmp_inst_list.append(self.create_device_pu(
+                                                        channel_id, rank_id, device_id, pu_num, pu_mask, 
+                                                        (weight_bank, weight_row_offset + weight_row_id, weight_col_offset), 
+                                                        (weight_bank, 0, input_col_offset), 
+                                                        col_len, weight_rowchange
+                                                    ))
+                                                else:
+                                                    tmp_inst_list.append(self.create_device_pu(
+                                                        channel_id, rank_id, device_id, pu_num, pu_mask, 
+                                                        (weight_bank, 0, weight_col_offset), 
+                                                        (weight_bank, 0, input_col_offset), 
+                                                        col_len, False
+                                                    ))
                                             for device_id in device_list:
-                                                tmp_inst_list.append(self.create_device_reg2buf(
-                                                    channel_id, rank_id, device_id, pu_num, pu_mask, 0
-                                                ))
+                                                if profile_level == 0:
+                                                    tmp_inst_list.append(self.create_device_reg2buf(
+                                                        channel_id, rank_id, device_id, pu_num, pu_mask, 0
+                                                    ))
                                             # check the command threshold
                                             # check the command threshold
                                             # if len(tmp_inst_list) > cmd_left:
@@ -293,11 +320,12 @@ class hbmpim(BaseCodegen):
                         for ol_row_id in range(ol_row):
                             o_row_id = om_row_id * ol_row + ol_row_id
                             col_len = (ol_block if ol_row_id < ol_row - 1 else ol_block_corner) * (om_block if om_row_id < om_row - 1 else om_block_corner)
-                            tmp_inst_list.append(
-                                self.create_host_read(
-                                    channel_id, rank_id, device_mask, output_bank_id, output_row_offset + o_row_id, 0, col_len, True
+                            if profile_level == 0:
+                                tmp_inst_list.append(
+                                    self.create_host_read(
+                                        channel_id, rank_id, device_mask, output_bank_id, output_row_offset + o_row_id, 0, col_len, True
+                                    )
                                 )
-                            )
                 tmp_inst_groups.append((group_id, [], tmp_inst_list))
                 group_id += 1
                 cmd_left -= len(tmp_inst_list)

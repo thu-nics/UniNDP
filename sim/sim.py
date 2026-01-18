@@ -11,7 +11,7 @@ tqdm_copy = tqdm.tqdm # store it if you want to use it later
 def tqdm_replacement(iterable_object,*args,**kwargs):
     return iterable_object
 
-def sim(commands, silent=False, filename=None, sim_verify = False, use_tqdm = True):
+def sim(commands, silent=False, filename=None, sim_verify = False, use_tqdm = False):
     
     # set up sim config
     # SimConfig.read_from_yaml('./config/all_feature.yaml')
@@ -101,6 +101,7 @@ def sim(commands, silent=False, filename=None, sim_verify = False, use_tqdm = Tr
     # TODO: how to get final latency?
     #   把资源状态里的最大值加到全局时钟上
     global_tick += np.max(resource_state)
+    tqdm.tqdm = tqdm_copy
 
     SimConfig.ch = real_ch
     return global_tick

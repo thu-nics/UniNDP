@@ -187,7 +187,7 @@ class BaseCodegen(HW_info):
                     om_row, ol_row, ob_row,
                     om_block_corner, ol_block_corner, ob_block_corner,
                     pu_m, pu_k, pu_l, pu_b,
-                    pu_list, performance_threshold):
+                    pu_list, performance_threshold, profile_level=0):
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -234,7 +234,7 @@ class BaseCodegen(HW_info):
 
     def codegen(self, kernel_name, compute_level, pu_num, partition, 
                 simd_k, mkl_Input_to_row, simd_l, ml_Out_to_row,
-                hw_id_list, mem_mapping, mm_schedule='mkl', cmd_threshold=0):
+                hw_id_list, mem_mapping, mm_schedule='mkl', cmd_threshold=0, profile_level=0):
         
         # get partition & mapping
         if SimConfig.pu_level == LEVEL.RA:
@@ -271,16 +271,33 @@ class BaseCodegen(HW_info):
         else: raise NotImplementedError
         
         # generate code
-        inst_groups, predict_result = \
-            kernel(mm_schedule, 0, channel_list, rank_list, device_list, pu_num, simd_l,
-                input_bank, input_row_offset, weight_bank, weight_row_offset, output_bank, output_row_offset,
-                m_block, k_block, l_block, b_block,
-                m_row, k_row, l_row, b_row,
-                m_block_corner, k_block_corner, l_block_corner, b_block_corner,
-                om_block, ol_block, ob_block,
-                om_row, ol_row, ob_row,
-                om_block_corner, ol_block_corner, ob_block_corner,
-                pu_m, pu_k, pu_l, pu_b, pu_list, cmd_threshold)
+        if isinstance(self, __import__('backend.aim16', fromlist=['aim16']).aim16) \
+            or isinstance(self, __import__('backend.aim8', fromlist=['aim8']).aim8) \
+                or isinstance(self, __import__('backend.upmem', fromlist=['upmem']).upmem) \
+                    or isinstance(self, __import__('backend.hbm_pim', fromlist=['hbmpim']).hbmpim):
+            # 这里可以加入针对aim16子类的特殊处理
+            # pass
+            inst_groups, predict_result = \
+                kernel(mm_schedule, 0, channel_list, rank_list, device_list, pu_num, simd_l,
+                    input_bank, input_row_offset, weight_bank, weight_row_offset, output_bank, output_row_offset,
+                    m_block, k_block, l_block, b_block,
+                    m_row, k_row, l_row, b_row,
+                    m_block_corner, k_block_corner, l_block_corner, b_block_corner,
+                    om_block, ol_block, ob_block,
+                    om_row, ol_row, ob_row,
+                    om_block_corner, ol_block_corner, ob_block_corner,
+                    pu_m, pu_k, pu_l, pu_b, pu_list, cmd_threshold, profile_level)
+        else:
+            inst_groups, predict_result = \
+                kernel(mm_schedule, 0, channel_list, rank_list, device_list, pu_num, simd_l,
+                    input_bank, input_row_offset, weight_bank, weight_row_offset, output_bank, output_row_offset,
+                    m_block, k_block, l_block, b_block,
+                    m_row, k_row, l_row, b_row,
+                    m_block_corner, k_block_corner, l_block_corner, b_block_corner,
+                    om_block, ol_block, ob_block,
+                    om_row, ol_row, ob_row,
+                    om_block_corner, ol_block_corner, ob_block_corner,
+                    pu_m, pu_k, pu_l, pu_b, pu_list, cmd_threshold)
         return inst_groups, self.inst_count.tolist(), predict_result
 
     def get_matrix(self):

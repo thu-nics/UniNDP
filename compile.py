@@ -57,6 +57,9 @@ def main():
     argparser.add_argument('--puslowdown', '-PS', type=int, default=1, help="""
                            increase the latency of PU by <puslowdown> times
                            """)
+    argparser.add_argument('--datapr', '-D', type=int, default=0, help="""
+                           set the data precision (bit), default uses config file value
+                           """)
     args = argparser.parse_args()
 
     # set up log file
@@ -66,8 +69,8 @@ def main():
     os.makedirs(f"{output_dir_name}/log", exist_ok=True)
     search_strategies = 'quick' if args.quicksearch else 'slow'
     search_strategies = search_strategies + f"_top{args.topk}"
-    outcsv_name = f"./{output_dir_name}/csv/_{args.name}.csv"
-    log_name = f"./{output_dir_name}/log/_{args.name}.log"
+    outcsv_name = f"{output_dir_name}/csv/_{args.name}.csv"
+    log_name = f"{output_dir_name}/log/_{args.name}.log"
     log_file = open(log_name, 'w')
 
     # set up workload size
@@ -142,6 +145,9 @@ def main():
     # set pu lat
     if args.puslowdown > 1:
         SimConfig.pu_lat = args.puslowdown * SimConfig.pu_lat
+    # set data precision
+    if args.datapr > 0:
+        SimConfig.data_pr = args.datapr
 
     # set NDP level
     if args.architecture == 'dimmining':
@@ -271,6 +277,27 @@ def main():
     csvfile.flush()
     print(f"baseline result: {baseline_sim_result}", file=log_file)
 
+    # NOTE: profile baseline
+    level_1_code, _, _ = \
+    codegen_tool.codegen(args.workload, compute_level, pu_num, partition,
+                simd_k, mkl_Input_to_row, simd_l, ml_Out_to_row,
+                hw_id_list, (input_bank, input_row_offset,
+                            weight_bank, weight_row_offset,
+                            output_bank, output_row_offset),
+                            cmd_threshold=0, profile_level=1)
+    level_1_lat = sim(level_1_code, silent=True, filename=None)
+    level_2_code, _, _ = \
+    codegen_tool.codegen(args.workload, compute_level, pu_num, partition,
+                simd_k, mkl_Input_to_row, simd_l, ml_Out_to_row,
+                hw_id_list, (input_bank, input_row_offset,
+                            weight_bank, weight_row_offset,
+                            output_bank, output_row_offset),
+                            cmd_threshold=0, profile_level=2)
+    level_2_lat = sim(level_2_code, silent=True, filename=None)
+    print(f"baseline compute lat: {level_2_lat}", file=log_file)
+    print(f"baseline row change lat: {level_1_lat - level_2_lat}", file=log_file)
+    print(f"baseline host access lat: {baseline_sim_result - level_1_lat}", file=log_file)
+
     """
     NOTE: 3. search for the optimal: predictor-aided / brute force
     """
@@ -354,8 +381,14 @@ def main():
                     best_result = sim_result
                     best_metrix = [inst_num, pu_dram_num, host_dram_num, row_change_num]
                     best_design = [design_point]
+                    best_dram_mapping = [(input_bank, input_row_offset,
+                                    weight_bank, weight_row_offset,
+                                    output_bank, output_row_offset)]
                 elif sim_result == best_result:
                     best_design.append(design_point)
+                    best_dram_mapping.append((input_bank, input_row_offset,
+                                    weight_bank, weight_row_offset,
+                                    output_bank, output_row_offset))
         writer.writerow([args.name, args.workload, best_result] + best_metrix + 
                             [baseline_sim_result, baseline_inst_num, baseline_pu_dram_num, baseline_host_dram_num, baseline_row_change_num])
         # writer.writerow([compute_level, pu_num, partition] + hw_utilization_info + [simd_k, mkl_Input_to_row, simd_l, ml_Out_to_row, predict_result_list[index][0], sim_result] + inst_count)
@@ -419,6 +452,9 @@ def main():
                 if sim_result < best_result:
                     best_result = sim_result
                     best_design = [design_point]
+                    best_dram_mapping = [(input_bank, input_row_offset,
+                                    weight_bank, weight_row_offset,
+                                    output_bank, output_row_offset)]
                     best_metrix = [inst_num, pu_dram_num, host_dram_num, row_change_num]
                 # elif sim_result == best_result:
                 #     best_design.append(design_point)
@@ -426,6 +462,32 @@ def main():
                             [baseline_sim_result, baseline_inst_num, baseline_pu_dram_num, baseline_host_dram_num, baseline_row_change_num])
         csvfile.flush()
 
+    # NOTE: profile best result
+    design_point = best_design[0]
+    dram_mapping = best_dram_mapping[0]
+    compute_level, pu_num, partition, simd_k, mkl_Input_to_row, simd_l, ml_Out_to_row = design_point
+    mapping_tool = Mapping(require_power_of_2 = args.po2)
+    hw_id_list = mapping_tool.assign_hw(partition)
+    codegen_tool = Codegen(require_power_of_2 = args.po2)
+    codegen_tool.set_gen()
+    level_1_code, _, _ = \
+    codegen_tool.codegen(args.workload, compute_level, pu_num, partition,
+                simd_k, mkl_Input_to_row, simd_l, ml_Out_to_row,
+                hw_id_list, dram_mapping,
+                cmd_threshold=0, profile_level=1)
+    level_1_lat = sim(level_1_code, silent=True, filename=None)
+    
+    level_2_code, _, _ = \
+    codegen_tool.codegen(args.workload, compute_level, pu_num, partition,
+                simd_k, mkl_Input_to_row, simd_l, ml_Out_to_row,
+                hw_id_list, dram_mapping,
+                cmd_threshold=0, profile_level=2)
+    level_2_lat = sim(level_2_code, silent=True, filename=None)
+    for cmd in level_1_code[0][2]:
+        print(cmd, file=log_file)
+    print(f"best compute lat: {level_2_lat}", file=log_file)
+    print(f"best row change lat: {level_1_lat - level_2_lat}", file=log_file)
+    print(f"best host access lat: {best_result - level_1_lat}", file=log_file)
     # output the best result and close csv file
     print(f"best_result: {best_result}", file=log_file)
     print(f"best_design: {best_design}", file=log_file)

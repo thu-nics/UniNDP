@@ -1,0 +1,14 @@
+﻿
+q_emb_mul,elewise,1,52,1,128
+q_emb_add,elewise,1,52,1,128
+k_emb_mul,elewise,1,52,1,128
+k_emb_add,elewise,1,52,1,128
+qk,mm,1,6656,32,1
+softmax,softmax,32,52,1,1
+kv,mm,1,1664,128,1
+out_add,elewise,6656,1,1,1
+out_rms_norm,elewise,6656,1,1,1
+up_add,elewise,20480,1,1,1
+down_add,elewise,6656,1,1,1
+final_rms_norm,elewise,6656,1,1,1
+final_proj,mm,1,6656,32000,1

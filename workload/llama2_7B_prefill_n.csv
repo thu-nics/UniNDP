@@ -1,0 +1,17 @@
+﻿
+qkvo_gen,mm,4096,4096,4096,1
+q_emb_mul,elewise,4096,32,1,128
+q_emb_add,elewise,4096,32,1,128
+k_emb_mul,elewise,4096,32,1,128
+k_emb_add,elewise,4096,32,1,128
+qk,mm,4096,4096,4096,1
+softmax,softmax,4096,32,4096,1
+kv,mm,128,131072,4096,1
+out_add,elewise,4096,4096,1,1
+out_rms_norm,elewise,4096,4096,1,1
+upgate,mm,4096,4096,11008,1
+up_add,elewise,11008,4096,1,1
+down,mm,4096,11008,4096,1
+down_add,elewise,4096,4096,1,1
+final_rms_norm,elewise,4096,1,1,1
+final_proj,mm,1,4096,32000,1

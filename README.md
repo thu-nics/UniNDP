@@ -25,6 +25,41 @@ pip install -r requirements.txt
 
 ``` -->
 
+# 0.5 GUI Demo (Optional)
+
+We provide an interactive GUI demo for visualizing the single operator compilation process.
+
+## Quick Start
+
+```bash
+# [Under UniNDP dir]
+# Install GUI dependencies
+pip install -r gui_demo/requirements.txt
+
+# Run the GUI demo
+cd gui_demo
+python gui_demo.py
+```
+
+Then open your browser at `http://127.0.0.1:7860` to access the GUI.
+
+## Features
+
+- **Input Configuration**: Select preset workloads or customize M, K, N dimensions
+- **Hardware Selection**: Choose from UPMEM, AiM-16, AiM-8, HBM-PIM, DIMM-ining architectures
+- **Real-time Visualization**: 
+  - Matrix multiplication dimensions
+  - Hardware hierarchy diagram
+  - Partition strategy visualization
+  - DRAM row/column mapping
+- **Performance Comparison**: Baseline vs. optimized cycles with detailed metrics
+
+## Output Files
+
+The GUI stores compilation outputs in `gui_demo/output/`:
+- `csv/`: Result CSV files
+- `log/`: Compilation log files
+
 # 1. How to start
 
 > You can skip this section if you are not interested in the detailed usage of the compiler.

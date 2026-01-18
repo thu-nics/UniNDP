@@ -8,7 +8,7 @@ data_pr: 16 # bit
 ro: 32768
 co: 128
 co_w: 64 # bit
-bg: 4
+bg: 2
 ba: 4
 de_pu:
 - 8

@@ -43,7 +43,7 @@ class aim16(BaseCodegen):
                     om_row, ol_row, ob_row,
                     om_block_corner, ol_block_corner, ob_block_corner,
                     pu_m, pu_k, pu_l, pu_b,
-                    pu_list, performance_threshold):
+                    pu_list, performance_threshold, profile_level = 0):
         tmp_inst_groups = []
         group_id = base_group_id
         cmd_left = performance_threshold
@@ -83,11 +83,12 @@ class aim16(BaseCodegen):
                                 # write new input to global buffer
                                 input_row_id = m_row_id * k_row + k_row_id # input row id
                                 # 此处是一个从host写入global buffer的指令
-                                tmp_inst_list.append(
-                                    self.create_host_write_device_buffer(
-                                        channel_id, rank_id, device_mask, 0, k_block_real * m_block_real
+                                if profile_level == 0:
+                                    tmp_inst_list.append(
+                                        self.create_host_write_device_buffer(
+                                            channel_id, rank_id, device_mask, 0, k_block_real * m_block_real
+                                        )
                                     )
-                                )
                                 if not self.gen_code:
                                     predict_ = np.dot(self.inst_count, self.predictor)
                                     outer_loop = m_row * k_row * pu_m * pu_k
@@ -126,27 +127,37 @@ class aim16(BaseCodegen):
                                             o_row_id = om_row_id * ol_row + ol_row_id
                                             # 用 host 读出并写入所有device中各16个计算单元的输出Reg
                                             if outpoint_log[om_id, ol_id]:
-                                                tmp_inst_list.append(
-                                                    # 2. Host -> 输出Reg
-                                                    self.create_host_write_mac_reg(
-                                                        channel_id, rank_id, device_mask, pu_mask
+                                                if profile_level == 0:
+                                                    tmp_inst_list.append(
+                                                        # 2. Host -> 输出Reg
+                                                        self.create_host_write_mac_reg(
+                                                            channel_id, rank_id, device_mask, pu_mask
+                                                        )
                                                     )
-                                                )
                                             outpoint_log[om_id, ol_id] = True
                                             for device_id in device_list:
                                                 # compute
-                                                tmp_inst_list.append(self.create_device_pu(
-                                                    channel_id, rank_id, device_id, pu_num, pu_mask, 
-                                                    (weight_bank, weight_row_offset + weight_row_id, weight_col_offset), 
-                                                    (weight_bank, 1, input_col_offset), # 此处>1，因此没有问题
-                                                    col_len, input_rowchange and weight_rowchange
-                                                ))
-                                            tmp_inst_list.append(
-                                                # 1. 输出Reg -> Host
-                                                self.create_host_read_mac_reg(
-                                                    channel_id, rank_id, device_mask, pu_mask
+                                                if profile_level <= 1:
+                                                    tmp_inst_list.append(self.create_device_pu(
+                                                        channel_id, rank_id, device_id, pu_num, pu_mask, 
+                                                        (weight_bank, weight_row_offset + weight_row_id, weight_col_offset), 
+                                                        (weight_bank, 1, input_col_offset), # 此处>1，因此没有问题
+                                                        col_len, input_rowchange and weight_rowchange
+                                                    ))
+                                                else:
+                                                    tmp_inst_list.append(self.create_device_pu(
+                                                        channel_id, rank_id, device_id, pu_num, pu_mask, 
+                                                        (weight_bank, weight_row_offset, weight_col_offset), 
+                                                        (weight_bank, 1, input_col_offset), # 此处>1，因此没有问题
+                                                        col_len, False
+                                                    ))
+                                            if profile_level == 0:
+                                                tmp_inst_list.append(
+                                                    # 1. 输出Reg -> Host
+                                                    self.create_host_read_mac_reg(
+                                                        channel_id, rank_id, device_mask, pu_mask
+                                                    )
                                                 )
-                                            )
                                             # check the command threshold'
                                     if not self.gen_code:
                                         predict_ = np.dot(self.inst_count, self.predictor)

@@ -45,7 +45,7 @@ class upmem(BaseCodegen):
                     om_row, ol_row, ob_row,
                     om_block_corner, ol_block_corner, ob_block_corner,
                     pu_m, pu_k, pu_l, pu_b,
-                    pu_list, performance_threshold):
+                    pu_list, performance_threshold, profile_level=0):
         tmp_inst_groups = []
         cmd_left = performance_threshold
         group_id = base_group_id
@@ -78,12 +78,13 @@ class upmem(BaseCodegen):
                                 # bank_mask = [( i in bank_list ) for i in range(self.bank_num)]
                                 limited_pu_mask = [(i in limited_pu_list) for i in range(pu_num)]
                                 # device并行的写入pu的输入buffer
-                                tmp_inst_list.append(
-                                    self.create_host_write_pu_inbuf(
-                                        channel_id, rank_id, device_mask, limited_pu_mask,
-                                        0, k_block_real * m_block_real
+                                if profile_level == 0:
+                                    tmp_inst_list.append(
+                                        self.create_host_write_pu_inbuf(
+                                            channel_id, rank_id, device_mask, limited_pu_mask,
+                                            0, k_block_real * m_block_real
+                                        )
                                     )
-                                )
                             if not self.gen_code:
                                 predict_ = np.dot(self.inst_count, self.predictor)
                                 outer_loop = m_row * k_row * len(rank_list)
@@ -120,22 +121,32 @@ class upmem(BaseCodegen):
                                         # need_change, last_col, last_row = self.output_buffer(o_col_id, o_row_id)
                                         # load in result from buffer
                                         for device_id in device_list:
-                                            tmp_inst_list.append(self.create_device_buf2reg(
-                                                channel_id, rank_id, device_id, pu_num, pu_mask, 0
-                                            ))
+                                            if profile_level == 0:
+                                                tmp_inst_list.append(self.create_device_buf2reg(
+                                                    channel_id, rank_id, device_id, pu_num, pu_mask, 0
+                                                ))
                                         # compute using pu in buf
                                         for device_id in device_list:
-                                            tmp_inst_list.append(self.create_device_pu(
-                                                channel_id, rank_id, device_id, pu_num, pu_mask, 
-                                                (weight_bank, weight_row_offset + weight_row_id, weight_col_offset), 
-                                                (weight_bank, 0, input_col_offset), 
-                                                col_len, need_rowchange
-                                            ))
+                                            if profile_level <= 1:
+                                                tmp_inst_list.append(self.create_device_pu(
+                                                    channel_id, rank_id, device_id, pu_num, pu_mask, 
+                                                    (weight_bank, weight_row_offset + weight_row_id, weight_col_offset), 
+                                                    (weight_bank, 0, input_col_offset), 
+                                                    col_len, need_rowchange
+                                                ))
+                                            else:
+                                                tmp_inst_list.append(self.create_device_pu(
+                                                    channel_id, rank_id, device_id, pu_num, pu_mask, 
+                                                    (weight_bank, weight_row_offset, weight_col_offset), 
+                                                    (weight_bank, 0, input_col_offset), 
+                                                    col_len, False
+                                                ))
                                         # write back to buffer
                                         for device_id in device_list:
-                                            tmp_inst_list.append(self.create_device_reg2buf(
-                                                channel_id, rank_id, device_id, pu_num, pu_mask, 0
-                                            ))
+                                            if profile_level == 0:
+                                                tmp_inst_list.append(self.create_device_reg2buf(
+                                                    channel_id, rank_id, device_id, pu_num, pu_mask, 0
+                                                ))
                                         # check the command threshold
                                         # if first_rank_threshold and self.inst_count[1] > cmd_left:
                                         #     return None, 0, 0
@@ -167,11 +178,12 @@ class upmem(BaseCodegen):
                         for ol_row_id in range(ol_row):
                             o_row_id = om_row_id * ol_row + ol_row_id
                             col_len = (ol_block if ol_row_id < ol_row - 1 else ol_block_corner) * (om_block if om_row_id < om_row - 1 else om_block_corner)
-                            tmp_inst_list.append(
-                                self.create_host_read(
-                                    channel_id, rank_id, device_mask, output_bank_id, output_row_offset + o_row_id, 0, col_len, True
+                            if profile_level == 0:
+                                tmp_inst_list.append(
+                                    self.create_host_read(
+                                        channel_id, rank_id, device_mask, output_bank_id, output_row_offset + o_row_id, 0, col_len, True
+                                    )
                                 )
-                            )
                 tmp_inst_groups.append((group_id, [], tmp_inst_list))
                 group_id += 1
                 # cmd_left -= len(tmp_inst_list)
